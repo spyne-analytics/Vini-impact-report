@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getRooftopData, getRooftopDataForMonth } from "@/lib/data-utils";
+import {
+  getRooftopData,
+  getRooftopDataForMonth,
+  getRooftopDataLive,
+  getRooftopDataForMonthLive,
+} from "@/lib/data-utils";
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -10,7 +15,20 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Missing rooftop parameter" }, { status: 400 });
   }
 
-  const data = month ? getRooftopDataForMonth(rooftop, month) : getRooftopData(rooftop);
+  // Try live data from Google Sheets first, fall back to static
+  let data;
+  try {
+    data = month
+      ? await getRooftopDataForMonthLive(rooftop, month)
+      : await getRooftopDataLive(rooftop);
+  } catch {
+    data = null;
+  }
+
+  // Fallback to static data
+  if (!data) {
+    data = month ? getRooftopDataForMonth(rooftop, month) : getRooftopData(rooftop);
+  }
 
   if (!data) {
     return NextResponse.json({ error: "Rooftop not found or no data for selected month" }, { status: 404 });

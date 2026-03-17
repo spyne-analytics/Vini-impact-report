@@ -105,3 +105,10 @@ export interface GroupReportData {
   period: string;
   monthsActive: number;
 }
+
+/** Additional sheet data from Google Sheets */
+export interface SheetExtraData {
+  campaignROI: Record<string, string>[];
+  campaignDetails: Record<string, string>[];
+  beforeAfter: Record<string, string>[];
+}

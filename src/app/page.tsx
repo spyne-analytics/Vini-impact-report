@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import ConfigRibbon from "@/components/ConfigRibbon";
 import ReportView from "@/components/ReportView";
 import { C, font, mono, serif } from "@/lib/colors";
-import type { Enterprise, ReportConfig, RooftopData, GroupReportData } from "@/lib/types";
+import type { Enterprise, ReportConfig, RooftopData, GroupReportData, SheetExtraData } from "@/lib/types";
 
 const DEFAULT_CONFIG: ReportConfig = {
   enterprise: "",
@@ -24,6 +24,7 @@ export default function HomePage() {
   const [rooftopData, setRooftopData] = useState<RooftopData | null>(null);
   const [groupData, setGroupData] = useState<GroupReportData | null>(null);
   const [fromDrillDown, setFromDrillDown] = useState(false);
+  const [sheetExtra, setSheetExtra] = useState<SheetExtraData | null>(null);
 
   const reportRef = useRef<HTMLDivElement>(null);
 
@@ -53,6 +54,9 @@ export default function HomePage() {
     setFromDrillDown(false);
 
     try {
+      // Fetch report data and extra sheet data in parallel
+      const sheetPromise = fetch("/api/sheet-data").then((r) => r.json()).catch(() => null);
+
       if (config.viewMode === "group") {
         const params = new URLSearchParams({ enterprise: config.enterprise });
         if (config.reportMonth) params.set("month", config.reportMonth);
@@ -68,6 +72,9 @@ export default function HomePage() {
         setRooftopData(data);
         setGroupData(null);
       }
+
+      const extra = await sheetPromise;
+      if (extra && !extra.error) setSheetExtra(extra);
       setGenerated(true);
     } catch (e) {
       console.error("Failed to load report data:", e);
@@ -99,12 +106,18 @@ export default function HomePage() {
     setRooftopData(null);
   }, []);
 
+  const handleRefresh = useCallback(async () => {
+    await fetch("/api/refresh", { method: "POST" }).catch(() => {});
+    if (generated) handleGenerate();
+  }, [generated, handleGenerate]);
+
   const handleReset = useCallback(() => {
     setConfig(DEFAULT_CONFIG);
     setGenerated(false);
     setRooftopData(null);
     setGroupData(null);
     setFromDrillDown(false);
+    setSheetExtra(null);
     if (enterprises.length > 0) {
       const first = enterprises[0];
       setConfig({
@@ -165,6 +178,7 @@ export default function HomePage() {
         onConfigChange={setConfig}
         onGenerate={handleGenerate}
         onReset={handleReset}
+        onRefresh={handleRefresh}
         loading={loading}
       />
 
@@ -209,6 +223,7 @@ export default function HomePage() {
                 onDrillDown={handleDrillDown}
                 onBackToGroup={handleBackToGroup}
                 fromDrillDown={fromDrillDown}
+                sheetExtra={sheetExtra}
               />
 
               {/* Footer */}

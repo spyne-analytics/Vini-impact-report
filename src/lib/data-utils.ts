@@ -2,6 +2,61 @@ import fs from "fs";
 import path from "path";
 import { Enterprise, RooftopData, HeroData, HeroMonthly, SectionData, GroupReportData, OutcomeItem, MonthlyData } from "./types";
 import { ALL_DATA } from "./all-data";
+import { buildAllDataFromSheets } from "./sheet-data-builder";
+
+// ─── Cached live data from Google Sheets ───
+let liveData: Awaited<ReturnType<typeof buildAllDataFromSheets>> | null = null;
+let liveDataFetchedAt = 0;
+const LIVE_DATA_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+async function getLiveData() {
+  if (liveData && Date.now() - liveDataFetchedAt < LIVE_DATA_TTL_MS) {
+    return liveData;
+  }
+  try {
+    liveData = await buildAllDataFromSheets();
+    liveDataFetchedAt = Date.now();
+    return liveData;
+  } catch (err) {
+    console.error("Failed to fetch live data from Google Sheets:", err);
+    return null;
+  }
+}
+
+/**
+ * Get the active data source: live sheets if available, otherwise static.
+ */
+async function getActiveData(): Promise<Record<string, RooftopData>> {
+  const live = await getLiveData();
+  if (live && Object.keys(live.allData).length > 0) {
+    return live.allData;
+  }
+  return ALL_DATA;
+}
+
+/**
+ * Get campaign ROI data (only from live sheets).
+ */
+export async function getCampaignROI(): Promise<Record<string, string>[]> {
+  const live = await getLiveData();
+  return live?.campaignROI || [];
+}
+
+/**
+ * Get campaign details (only from live sheets).
+ */
+export async function getCampaignDetails(): Promise<Record<string, string>[]> {
+  const live = await getLiveData();
+  return live?.campaignDetails || [];
+}
+
+/**
+ * Get before-after data (only from live sheets).
+ */
+export async function getBeforeAfter(): Promise<Record<string, string>[]> {
+  const live = await getLiveData();
+  return live?.beforeAfter || [];
+}
 
 export function loadEnterprises(): Enterprise[] {
   const csvPath = path.join(process.cwd(), "data", "enterprises.csv");
@@ -25,6 +80,11 @@ export function loadEnterprises(): Enterprise[] {
 
 export function getRooftopData(rooftopName: string): RooftopData | null {
   return ALL_DATA[rooftopName] || null;
+}
+
+export async function getRooftopDataLive(rooftopName: string): Promise<RooftopData | null> {
+  const data = await getActiveData();
+  return data[rooftopName] || null;
 }
 
 const MONTH_ORDER: Record<string, number> = {
@@ -54,6 +114,19 @@ export function getAvailableMonths(): string[] {
   return [...allMonths].sort((a, b) => monthLabelToSortKey(a) - monthLabelToSortKey(b));
 }
 
+export async function getAvailableMonthsLive(): Promise<string[]> {
+  const data = await getActiveData();
+  const allMonths = new Set<string>();
+  for (const rooftop of Object.values(data)) {
+    for (const section of Object.values(rooftop.sectionData)) {
+      for (const m of section.monthly) {
+        allMonths.add(m.label);
+      }
+    }
+  }
+  return [...allMonths].sort((a, b) => monthLabelToSortKey(a) - monthLabelToSortKey(b));
+}
+
 function filterMonthlyData(
   monthly: MonthlyData[],
   selectedMonth: string
@@ -72,20 +145,27 @@ function getMonthData(
   return monthly.find((m) => m.label === monthLabel) || null;
 }
 
-function getPreviousMonthLabel(monthLabel: string): string {
-  const { month, year } = parseMonthLabel(monthLabel);
-  const monthNum = MONTH_ORDER[month] || 1;
-  const prevMonthNum = monthNum === 1 ? 12 : monthNum - 1;
-  const prevYear = monthNum === 1 ? year - 1 : year;
-  const prevMonthName = Object.entries(MONTH_ORDER).find(([, v]) => v === prevMonthNum)?.[0] || "Jan";
-  return `${prevMonthName} '${String(prevYear).slice(2)}`;
-}
-
 export function getRooftopDataForMonth(
   rooftopName: string,
   monthLabel: string
 ): RooftopData | null {
-  const data = ALL_DATA[rooftopName];
+  return getRooftopDataForMonthFromSource(ALL_DATA, rooftopName, monthLabel);
+}
+
+export async function getRooftopDataForMonthLive(
+  rooftopName: string,
+  monthLabel: string
+): Promise<RooftopData | null> {
+  const data = await getActiveData();
+  return getRooftopDataForMonthFromSource(data, rooftopName, monthLabel);
+}
+
+function getRooftopDataForMonthFromSource(
+  source: Record<string, RooftopData>,
+  rooftopName: string,
+  monthLabel: string
+): RooftopData | null {
+  const data = source[rooftopName];
   if (!data) return null;
 
   const heroMonthly = data.heroMonthly;
@@ -95,7 +175,6 @@ export function getRooftopDataForMonth(
   });
 
   if (!monthEntry) {
-    // Check if any section has data for this month
     let hasData = false;
     for (const sd of Object.values(data.sectionData)) {
       if (sd.monthly.some((m) => m.label === monthLabel)) {
@@ -106,7 +185,6 @@ export function getRooftopDataForMonth(
     if (!hasData) return null;
   }
 
-  // Filter section monthly data to last 6 months up to selected
   const filteredSectionData: Record<string, SectionData> = {};
   for (const [key, sd] of Object.entries(data.sectionData)) {
     const filtered = filterMonthlyData(sd.monthly, monthLabel);
@@ -163,14 +241,29 @@ export function getGroupReportData(
   enterpriseName: string,
   monthLabel?: string
 ): GroupReportData | null {
+  return getGroupReportDataFromSource(ALL_DATA, enterpriseName, monthLabel);
+}
+
+export async function getGroupReportDataLive(
+  enterpriseName: string,
+  monthLabel?: string
+): Promise<GroupReportData | null> {
+  const data = await getActiveData();
+  return getGroupReportDataFromSource(data, enterpriseName, monthLabel);
+}
+
+function getGroupReportDataFromSource(
+  source: Record<string, RooftopData>,
+  enterpriseName: string,
+  monthLabel?: string
+): GroupReportData | null {
   const enterprises = loadEnterprises();
   const enterprise = enterprises.find((e) => e.name === enterpriseName);
   if (!enterprise) return null;
 
-  const validRooftops = enterprise.rooftops.filter((r) => ALL_DATA[r]);
+  const validRooftops = enterprise.rooftops.filter((r) => source[r]);
   if (validRooftops.length === 0) return null;
 
-  // Aggregate hero data
   const aggHero: HeroData = {
     totalCalls: 0, qualifiedCalls: 0, appointments: 0, routedToTeam: 0,
     qualRate: 0, afterHoursShare: 0, salesAppts: 0, serviceAppts: 0,
@@ -187,7 +280,7 @@ export function getGroupReportData(
   const monthlyMap = new Map<string, HeroMonthly>();
 
   for (const name of validRooftops) {
-    const r = ALL_DATA[name];
+    const r = source[name];
 
     aggHero.totalCalls += r.hero.totalCalls;
     aggHero.qualifiedCalls += r.hero.qualifiedCalls;
@@ -246,7 +339,6 @@ export function getGroupReportData(
       agg.duringHours += sd.duringHours;
       agg.afterHours += sd.afterHours;
 
-      // Aggregate monthly data
       for (const m of sd.monthly) {
         const existing = agg.monthly.find((x) => x.label === m.label);
         if (existing) {
@@ -263,7 +355,6 @@ export function getGroupReportData(
         }
       }
 
-      // Aggregate outcomes
       const outcomes = r.outcomesByAgent?.[s];
       if (outcomes) {
         if (!aggOutcomes[s]) aggOutcomes[s] = new Map();
@@ -281,7 +372,6 @@ export function getGroupReportData(
     ? Math.round((totalAfterHours / totalForAfterHoursCalc) * 1000) / 10
     : 0;
 
-  // Finalize section aggregations
   for (const [, sd] of Object.entries(aggSectionData)) {
     sd.qualRate = sd.totalCalls > 0
       ? Math.round((sd.qualifiedCalls / sd.totalCalls) * 1000) / 10
@@ -292,7 +382,6 @@ export function getGroupReportData(
     sd.monthly.sort((a, b) => monthLabelToSortKey(a.label) - monthLabelToSortKey(b.label));
   }
 
-  // Convert outcome maps to sorted arrays
   const outcomesByAgent: Record<string, OutcomeItem[] | null> = {};
   for (const s of allSections) {
     const map = aggOutcomes[s];
@@ -306,7 +395,6 @@ export function getGroupReportData(
     }
   }
 
-  // Sort heroMonthly
   const heroMonthlyArr = [...monthlyMap.values()];
   const heroMonthOrder = ["Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar", "Apr", "May", "Jun"];
   heroMonthlyArr.sort((a, b) => {
@@ -315,10 +403,9 @@ export function getGroupReportData(
     return ai - bi;
   });
 
-  // Determine period
   const allMonths = new Set<string>();
   for (const r of validRooftops) {
-    const data = ALL_DATA[r];
+    const data = source[r];
     for (const sd of Object.values(data.sectionData)) {
       for (const m of sd.monthly) allMonths.add(m.label);
     }
@@ -328,7 +415,7 @@ export function getGroupReportData(
     ? `${sortedMonths[0]} \u2014 ${sortedMonths[sortedMonths.length - 1]}`
     : "";
 
-  const maxMonths = Math.max(...validRooftops.map((r) => ALL_DATA[r].monthsActive));
+  const maxMonths = Math.max(...validRooftops.map((r) => source[r].monthsActive));
 
   return {
     enterprise: enterpriseName,

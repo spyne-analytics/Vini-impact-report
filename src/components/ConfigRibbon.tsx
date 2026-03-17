@@ -73,6 +73,7 @@ interface ConfigRibbonProps {
   onConfigChange: (config: ReportConfig) => void;
   onGenerate: () => void;
   onReset: () => void;
+  onRefresh?: () => void;
   loading: boolean;
 }
 
@@ -83,6 +84,7 @@ export default function ConfigRibbon({
   onConfigChange,
   onGenerate,
   onReset,
+  onRefresh,
   loading,
 }: ConfigRibbonProps) {
   const [insightsOpen, setInsightsOpen] = useState(false);
@@ -229,6 +231,34 @@ export default function ConfigRibbon({
         >
           {insightsOpen ? "Hide" : "Show"} Insights {insightsOpen ? "\u25B2" : "\u25BC"}
         </button>
+
+        {/* Refresh Data */}
+        {onRefresh && (
+          <button
+            onClick={onRefresh}
+            title="Refresh data from Google Sheets"
+            style={{
+              fontFamily: mono,
+              fontSize: 10,
+              letterSpacing: "0.1em",
+              textTransform: "uppercase",
+              background: "transparent",
+              border: "1px solid rgba(255,255,255,0.15)",
+              color: "rgba(245,240,232,0.5)",
+              padding: "7px 14px",
+              borderRadius: 4,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: 5,
+            }}
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.3" />
+            </svg>
+            Refresh
+          </button>
+        )}
 
         {/* Reset */}
         <button

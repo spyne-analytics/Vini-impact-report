@@ -8,7 +8,7 @@ import {
 import { C, font, mono, serif } from "@/lib/colors";
 import type {
   RooftopData, HeroData, HeroMonthly, SectionData, OutcomeItem,
-  GroupReportData,
+  GroupReportData, SheetExtraData,
 } from "@/lib/types";
 
 /* ═══ SUB-COMPONENTS ═══ */
@@ -746,6 +746,75 @@ function GroupReport({ data, insights, onDrillDown }: GroupReportViewProps) {
   );
 }
 
+/* ═══ SHEET EXTRA DATA SECTIONS ═══ */
+
+function SheetDataTable({ title, data, sectionNum, accent }: { title: string; data: Record<string, string>[]; sectionNum: string; accent: string }) {
+  if (!data || data.length === 0) return null;
+  const columns = Object.keys(data[0]);
+  return (
+    <FadeIn delay={500}>
+      <div className="page-break-before print-page-top" style={{ marginBottom: 28 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "24px 0 12px", borderBottom: `1.5px solid ${C.ink}`, marginBottom: 12 }}>
+          <span style={{ fontFamily: mono, fontSize: 10, fontWeight: 500, letterSpacing: "0.2em", color: accent, textTransform: "uppercase" }}>{sectionNum}</span>
+          <h2 style={{ fontFamily: font, fontSize: 19, fontWeight: 700, margin: 0 }}>{title}</h2>
+        </div>
+        <div style={{ border: `1.5px solid ${C.ink}`, overflow: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: mono, fontSize: 10 }}>
+            <thead>
+              <tr style={{ background: C.ink, color: C.paper }}>
+                {columns.map((col) => (
+                  <th key={col} style={{ textAlign: "left", padding: "10px 14px", fontWeight: 600, fontSize: 8, letterSpacing: "0.12em", textTransform: "uppercase", whiteSpace: "nowrap" }}>{col}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {data.map((row, i) => (
+                <tr key={i} style={{ background: i % 2 === 0 ? C.paper : C.cream, borderBottom: `1px solid ${C.rule}` }}>
+                  {columns.map((col) => (
+                    <td key={col} style={{ padding: "8px 14px", fontSize: 10, whiteSpace: "nowrap" }}>{row[col] || "\u2014"}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </FadeIn>
+  );
+}
+
+function SheetExtraSections({ data, startSection }: { data: SheetExtraData; startSection: number }) {
+  let sec = startSection;
+  return (
+    <>
+      {data.campaignROI.length > 0 && (
+        <SheetDataTable
+          title="Campaign ROI"
+          data={data.campaignROI}
+          sectionNum={String(sec++).padStart(2, "0")}
+          accent={C.teal}
+        />
+      )}
+      {data.campaignDetails.length > 0 && (
+        <SheetDataTable
+          title="Campaign Details"
+          data={data.campaignDetails}
+          sectionNum={String(sec++).padStart(2, "0")}
+          accent={C.teal}
+        />
+      )}
+      {data.beforeAfter.length > 0 && (
+        <SheetDataTable
+          title="Before &amp; After Vini"
+          data={data.beforeAfter}
+          sectionNum={String(sec++).padStart(2, "0")}
+          accent={C.green}
+        />
+      )}
+    </>
+  );
+}
+
 /* ═══ MAIN EXPORT ═══ */
 
 interface ReportViewProps {
@@ -757,24 +826,33 @@ interface ReportViewProps {
   onDrillDown: (rooftopName: string) => void;
   onBackToGroup: () => void;
   fromDrillDown: boolean;
+  sheetExtra?: SheetExtraData | null;
 }
 
 export default function ReportView({
   viewMode, rooftopData, groupData, rooftopName, insights,
-  onDrillDown, onBackToGroup, fromDrillDown,
+  onDrillDown, onBackToGroup, fromDrillDown, sheetExtra,
 }: ReportViewProps) {
   if (viewMode === "group" && groupData) {
-    return <GroupReport data={groupData} insights={insights} onDrillDown={onDrillDown} />;
+    return (
+      <>
+        <GroupReport data={groupData} insights={insights} onDrillDown={onDrillDown} />
+        {sheetExtra && <SheetExtraSections data={sheetExtra} startSection={5} />}
+      </>
+    );
   }
 
   if (viewMode === "rooftop" && rooftopData) {
     return (
-      <RooftopReport
-        data={rooftopData}
-        name={rooftopName}
-        insights={insights}
-        onBackToGroup={fromDrillDown ? onBackToGroup : undefined}
-      />
+      <>
+        <RooftopReport
+          data={rooftopData}
+          name={rooftopName}
+          insights={insights}
+          onBackToGroup={fromDrillDown ? onBackToGroup : undefined}
+        />
+        {sheetExtra && <SheetExtraSections data={sheetExtra} startSection={4} />}
+      </>
     );
   }
 
